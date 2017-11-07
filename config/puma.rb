@@ -1,7 +1,7 @@
 persistent_timeout ENV.fetch('PERSISTENT_TIMEOUT') { 20 }.to_i
 
 threads_count = ENV.fetch('MAX_THREADS') { 5 }.to_i
-threads threads_count, threads_count
+threads 0, threads_count
 
 if ENV['SOCKET']
   bind "unix://#{ENV['SOCKET']}"
@@ -10,13 +10,15 @@ else
 end
 
 environment ENV.fetch('RAILS_ENV') { 'development' }
-workers     ENV.fetch('WEB_CONCURRENCY') { 2 }
 
-preload_app!
-
-on_worker_boot do
-  ActiveSupport.on_load(:active_record) do
-    ActiveRecord::Base.establish_connection
+worker_num = ENV.fetch('WEB_CONCURRENCY') { 2 }.to_i
+if worker_num > 1 then
+  workers worker_num
+  preload_app!
+  on_worker_boot do
+    ActiveSupport.on_load(:active_record) do
+      ActiveRecord::Base.establish_connection
+    end
   end
 end
 
