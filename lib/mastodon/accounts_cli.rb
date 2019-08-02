@@ -4,6 +4,7 @@ require 'set'
 require_relative '../../config/boot'
 require_relative '../../config/environment'
 require_relative 'cli_helper'
+require_relative '../pool'
 
 module Mastodon
   class AccountsCLI < Thor
@@ -227,34 +228,40 @@ module Mastodon
       dry_run_culled = []
       skip_domains   = Set.new
       dry_run        = options[:dry_run] ? ' (DRY RUN)' : ''
-
+      pool = Pool.new(15)
       Account.remote.where(protocol: :activitypub).partitioned.find_each do |account|
         next if account.updated_at >= skip_threshold || (account.last_webfingered_at.present? && account.last_webfingered_at >= skip_threshold)
-
-        code = 0
-        unless skip_domains.include?(account.domain)
-          begin
-            code = Request.new(:head, account.uri).perform(&:code)
-          rescue HTTP::ConnectionError
-            skip_domains << account.domain
-          rescue StandardError
-            next
+        pool.execute do
+          Thread.current[:code] = 0
+          unless skip_domains.include?(account.domain)
+            begin
+              Thread.current[:code] = Request.new(:head, account.uri).perform(&:code)
+            rescue HTTP::ConnectionError
+              skip_domains << account.domain
+            rescue StandardError
+              next
+            end
           end
-        end
 
-        if [404, 410].include?(code)
-          if options[:dry_run]
-            dry_run_culled << account.acct
+          if [404, 410].include?(Thread.current[:code])
+            if options[:dry_run]
+              dry_run_culled << account.acct
+            else
+              ActiveRecord::Base.connection_pool.with_connection do
+                SuspendAccountService.new.call(account, destroy: true)
+              end
+            end
+            culled += 1
+            say('+', :green, false)
           else
-            SuspendAccountService.new.call(account, destroy: true)
+            ActiveRecord::Base.connection_pool.with_connection do
+              account.touch # Touch account even during dry run to avoid getting the account into the window again
+            end
+            say('.', nil, false)
           end
-          culled += 1
-          say('+', :green, false)
-        else
-          account.touch # Touch account even during dry run to avoid getting the account into the window again
-          say('.', nil, false)
         end
       end
+      pool.shutdown
 
       say
       say("Removed #{culled} accounts. #{skip_domains.size} servers skipped#{dry_run}", skip_domains.empty? ? :green : :yellow)
