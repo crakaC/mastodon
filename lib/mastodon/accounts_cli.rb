@@ -446,6 +446,16 @@ module Mastodon
       end
     end
 
+    def remove_avatar_and_header
+      scope = Account.remote().where('(avatar_file_name IS NOT NULL OR header_file_name IS NOT NULL)')
+      scope = scope.where('id NOT IN (SELECT follows.target_account_id FROM follows WHERE follows.account_id IN (SELECT accounts.id FROM accounts WHERE accounts.domain IS NULL))')
+      scope.find_each do |account|
+        account.avatar.destroy unless account.avatar_file_name.nil?
+        account.header.destroy unless account.header_file_name.nil?
+        account.save
+      end
+    end
+
     private
 
     def rotate_keys_for_account(account, delay = 0)
