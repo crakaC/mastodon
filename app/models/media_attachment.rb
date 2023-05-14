@@ -125,6 +125,7 @@ class MediaAttachment < ApplicationRecord
       convert_options: {
         output: {
           'loglevel' => 'fatal',
+          'movflags' => 'faststart',
           'map_metadata' => '-1',
           'movflags' => 'faststart', # Move metadata to start of file so playback can begin before download finishes
           'c:v' => 'copy',
