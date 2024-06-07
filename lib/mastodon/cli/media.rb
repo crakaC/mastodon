@@ -72,6 +72,10 @@ module Mastodon::CLI
         processed, aggregate = parallelize_with_progress(attachment_scope) do |media_attachment|
           next if media_attachment.file.blank?
 
+          status_id = media_attachment.status.id
+          next if Favourite.where(status_id: status_id).any? { |f| f.account.local? }
+          next if Bookmark.where(status_id: status_id).any? { |b| b.account.local? }
+
           size = (media_attachment.file_file_size || 0) + (media_attachment.thumbnail_file_size || 0)
 
           unless dry_run?
